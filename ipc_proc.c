@@ -122,6 +122,8 @@ static void ipc_neighbours_destroy(struct ipc_neighbour *neighbours) {
   struct ipc_neighbour *neighbour = neighbours;
   while (neighbour) {
     struct ipc_neighbour *next = neighbour->next;
+    close(neighbour->read_pipe_fd);
+    close(neighbour->write_pipe_fd);
     free(neighbour);
     neighbour = next;
   }
