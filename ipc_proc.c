@@ -3,9 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "ipc.h"
+
+#define NO_READ 2
 
 static struct ipc_neighbour *ipc_neighbour_create(local_id id, int read_pipe_fd,
                                                   int write_pipe_fd);
@@ -22,7 +25,7 @@ static struct ipc_neighbour *ipc_neighbour_get_by_local_id(
     struct ipc_neighbour *neighbours, local_id dst);
 
 struct ipc_proc ipc_proc_init(local_id id) {
-  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL};
+  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL, .neighbours_cnt = 0};
   return proc;
 }
 
@@ -38,6 +41,7 @@ int ipc_proc_add_neighbour(struct ipc_proc *self, local_id dst,
       ipc_neighbour_create(dst, read_pipe_fd, write_pipe_fd);
   if (!neighbour) return -1;
   ipc_neighbours_add_back(&(self->ipc_neighbours), neighbour);
+  self->neighbours_cnt++;
   return 0;
 }
 
@@ -79,10 +83,12 @@ int receive(void *self, local_id from, Message *msg) {
   struct ipc_neighbour *neighbour =
       ipc_neighbour_get_by_local_id(ipc_proc->ipc_neighbours, from);
   if (!neighbour) return -1;
+  if (neighbour->id == 0) return 0;
   int read_pipe_fd = neighbour->read_pipe_fd;
   if (read_pipe_fd < 0) return -1;
   while (read_len) {
     ssize_t xfered = read(read_pipe_fd, buf, read_len);
+    if (xfered == 0) return NO_READ;
     if (xfered == -1) return -1;
     read_len -= xfered;
     buf += xfered;
@@ -95,7 +101,10 @@ int receive(void *self, local_id from, Message *msg) {
     read_len -= xfered;
     buf += xfered;
   }
-  return 0;
+  if(msg->s_header.s_magic == MESSAGE_MAGIC)
+    return 0;
+  else
+    return -1;
 }
 
 int receive_any(void *self, Message *msg) {
@@ -103,8 +112,79 @@ int receive_any(void *self, Message *msg) {
   struct ipc_proc *ipc_proc = (struct ipc_proc *)self;
   struct ipc_neighbour *neighbour = ipc_proc->ipc_neighbours;
   while (neighbour) {
-    if (!receive(self, neighbour->id, msg)) return -1;
-    neighbour = neighbour->next;
+    int res = receive(self, neighbour->id, msg);
+    if(res == 0) return 0;
+    else if(res == NO_READ)
+      neighbour = neighbour->next;
+    else return -1;
+  }
+  return NO_READ;
+}
+
+int send_started(struct ipc_proc *me, const char* msg, size_t msg_size) {
+  if (msg_size > MAX_PAYLOAD_LEN) {
+    return -1;
+  } else {
+    int ret;
+    Message *m = malloc(sizeof(Message));
+    m->s_header.s_magic = MESSAGE_MAGIC;
+    m->s_header.s_type = STARTED;
+    m->s_header.s_payload_len = msg_size;
+    strncpy(m->s_payload, msg, msg_size);
+    ret = send_multicast(me, m);
+    free(m);
+    return ret;
+  }
+}
+
+int send_done(struct ipc_proc *me, const char* msg, size_t msg_size){
+    if (msg_size > MAX_PAYLOAD_LEN) {
+    return -1;
+  } else {
+    int ret;
+    Message *m = malloc(sizeof(Message));
+    m->s_header.s_magic = MESSAGE_MAGIC;
+    m->s_header.s_type = DONE;
+    m->s_header.s_payload_len = msg_size;
+    strncpy(m->s_payload, msg, msg_size);
+    ret = send_multicast(me, m);
+    free(m);
+    return ret;
+  }
+}
+
+int receive_all_started(struct ipc_proc *me) {
+  unsigned int neighbours_cnt = me->neighbours_cnt;
+  unsigned int received = 0;
+  while(received <  neighbours_cnt){
+    int ret;
+    Message *m = malloc(sizeof(Message));
+    ret = receive_any(me, m);
+    if(ret == -1) {
+      free(m);
+      return ret;
+    } else if(ret == 0 && m->s_header.s_type == STARTED) {
+      received++;
+    }
+    free(m);
+  }
+  return 0;
+}
+
+int receive_all_done(struct ipc_proc *me) {
+  unsigned int neighbours_cnt = me->neighbours_cnt;
+  unsigned int received = 0;
+  while(received <  neighbours_cnt){
+    int ret;
+    Message *m = malloc(sizeof(Message));
+    ret = receive_any(me, m);
+    if(ret == -1) {
+      free(m);
+      return ret;
+    } else if(ret == 0 && m->s_header.s_type == DONE) {
+      received++;
+    }
+    free(m);
   }
   return 0;
 }
@@ -115,6 +195,7 @@ static struct ipc_neighbour *ipc_neighbour_create(local_id id, int read_pipe_fd,
   neighbour->id = id;
   neighbour->read_pipe_fd = read_pipe_fd;
   neighbour->write_pipe_fd = write_pipe_fd;
+  neighbour->next = NULL;
   return neighbour;
 }
 
