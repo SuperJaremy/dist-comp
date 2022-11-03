@@ -1,5 +1,6 @@
 #include <getopt.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,21 +63,13 @@ int main(int argc, char *argv[]) {
   }
   for (i = 1; i < N + 1; i++) {
     struct ipc_proc proc = ipc_proc_init(i);
-    procs[i-1] = proc;
+    procs[i - 1] = proc;
     for (j = 0; j < N + 1; j++) {
       if (i == j) continue;
-      if (j != 0) {
-        int idx = i * N + get_offset_by_neighbour_id(i, j);
-        ipc_proc_add_neighbour(&proc, j, read_pipes[idx], write_pipes[idx]);
-        fprintf(pipes_log, "P_%d_%d registered (read: %d; write: %d)\n",
-                (int)(i), (int)j, read_pipes[idx], write_pipes[idx]);
-
-      } else {
-        ipc_proc_add_neighbour(&proc, j, 0, write_pipes[i * N]);
-        fprintf(pipes_log, "P_%d_%d registered (read: %d; write: %d)\n",
-                (int)(i), (int)j, 0, write_pipes[i * N]);
-        close(read_pipes[i]);
-      }
+      int idx = i * N + get_offset_by_neighbour_id(i, j);
+      ipc_proc_add_neighbour(&proc, j, read_pipes[idx], write_pipes[idx]);
+      fprintf(pipes_log, "P_%d_%d registered (read: %d; write: %d)\n", (int)(i),
+              (int)j, read_pipes[idx], write_pipes[idx]);
     }
   }
   fclose(pipes_log);
@@ -93,6 +86,7 @@ int main(int argc, char *argv[]) {
     }
     working++;
   }
+  close_all_extra_pipes(0, N + 1, read_pipes, write_pipes);
 end:
   for (i = 0; i < working; i++) {
     wait(&wstatus);
@@ -126,6 +120,7 @@ static void do_child_proc(pid_t parent, struct ipc_proc proc) {
   sprintf(started_msg, log_started_fmt, proc.id, getpid(), parent);
   sprintf(done_msg, log_done_fmt, proc.id);
   FILE *log = fopen(EVENTS_LOG, "a");
+  
   fprintf(log, log_started_fmt, proc.id, getpid(), parent);
   fflush(log);
   if (send_started(&proc, started_msg, strlen(started_msg)) != 0) {
@@ -141,7 +136,7 @@ static void do_child_proc(pid_t parent, struct ipc_proc proc) {
   }
   fprintf(log, log_received_all_started_fmt, proc.id);
   fflush(log);
-  
+
   fprintf(log, log_done_fmt, proc.id);
   fflush(log);
   if (send_done(&proc, started_msg, strlen(started_msg)) != 0) {
@@ -166,11 +161,13 @@ end:
 }
 
 static void close_all_extra_pipes(local_id id, int process_cnt, int read_pipes[], int write_pipes[]) {
+  printf("My id: %d\n", id);
   for (local_id i = 0; i < process_cnt; i++) {
     if (i != id) {
       for (local_id j = 0; j < process_cnt - 1; j++) {
-        close(read_pipes[i*(process_cnt - 1) + j]);
-        close(write_pipes[i*(process_cnt - 1) + j]);
+        size_t idx = i * (process_cnt - 1) + j;
+        close(read_pipes[idx]);
+        close(write_pipes[idx]);
       }
     }
   }
