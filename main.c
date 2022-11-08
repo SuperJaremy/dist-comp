@@ -10,7 +10,7 @@
 
 #include "ipc.h"
 #include "ipc_proc.h"
-#include "pa1.h"
+#include "pa2345.h"
 
 #define PIPES_LOG "pipes.log"
 #define EVENTS_LOG "events.log"
