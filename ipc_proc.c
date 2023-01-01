@@ -1,14 +1,15 @@
 #include "ipc_proc.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "ipc.h"
-
-#define NO_READ 2
 
 static struct ipc_neighbour *ipc_neighbour_create(local_id id, int read_pipe_fd,
                                                   int write_pipe_fd);
@@ -24,8 +25,41 @@ static void ipc_neighbours_destroy(struct ipc_neighbour *neighbours);
 static struct ipc_neighbour *ipc_neighbour_get_by_local_id(
     struct ipc_neighbour *neighbours, local_id dst);
 
+static struct message_queue *message_queue_new(Message *message) {
+  struct message_queue *entry = malloc(sizeof(struct message_queue));
+  entry->next = NULL;
+  entry->message = message;
+  return entry;
+}
+
+static void message_queue_push(struct ipc_proc *ipc_proc, Message *message) {
+  if(ipc_proc->message_queue) {
+    struct message_queue *curr = ipc_proc->message_queue;
+    while(curr->next)
+      curr = curr->next;
+    curr->next = message_queue_new(message);
+  } else {
+    ipc_proc->message_queue = message_queue_new(message);
+  }
+}
+
+static bool message_queue_is_empty(struct ipc_proc *ipc_proc) {
+  return ipc_proc->message_queue == NULL;
+}
+
+Message *message_queue_pop(struct ipc_proc *ipc_proc) {
+  if(!message_queue_is_empty(ipc_proc)) {
+    struct message_queue *entry = ipc_proc->message_queue;
+    Message *m = entry->message;
+    ipc_proc->message_queue = entry->next;
+    free(entry);
+    return m;
+  }
+  return NULL;
+}
+
 struct ipc_proc ipc_proc_init(local_id id) {
-  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL, .neighbours_cnt = 0};
+  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL, .neighbours_cnt = 0, .message_queue = NULL};
   return proc;
 }
 
@@ -69,7 +103,7 @@ int send_multicast(void *self, const Message *msg) {
   struct ipc_proc *ipc_proc = self;
   struct ipc_neighbour *neighbour = ipc_proc->ipc_neighbours;
   while (neighbour) {
-    if (!send(self, neighbour->id, msg)) return -1;
+    if (send(self, neighbour->id, msg) != 0) return -1;
     neighbour = neighbour->next;
   }
   return 0;
@@ -83,18 +117,16 @@ int receive(void *self, local_id from, Message *msg) {
   struct ipc_neighbour *neighbour =
       ipc_neighbour_get_by_local_id(ipc_proc->ipc_neighbours, from);
   if (!neighbour) return -1;
-  if (neighbour->id == 0) return 0;
   int read_pipe_fd = neighbour->read_pipe_fd;
   if (read_pipe_fd < 0) return -1;
   while (read_len) {
     ssize_t xfered = read(read_pipe_fd, buf, read_len);
-    if (xfered == 0) return NO_READ;
+    if (xfered <= 0 && errno == EAGAIN) return NO_READ;
     if (xfered == -1) return -1;
     read_len -= xfered;
     buf += xfered;
   }
   read_len = msg->s_header.s_payload_len;
-  buf += sizeof(MessageHeader);
   while (read_len) {
     ssize_t xfered = read(read_pipe_fd, buf, read_len);
     if (xfered == -1) return -1;
@@ -121,7 +153,7 @@ int receive_any(void *self, Message *msg) {
   return NO_READ;
 }
 
-int send_started(struct ipc_proc *me, const char* msg, size_t msg_size) {
+int send_started(struct ipc_proc *me, const char* msg, size_t msg_size, timestamp_t time) {
   if (msg_size > MAX_PAYLOAD_LEN) {
     return -1;
   } else {
@@ -130,6 +162,7 @@ int send_started(struct ipc_proc *me, const char* msg, size_t msg_size) {
     m->s_header.s_magic = MESSAGE_MAGIC;
     m->s_header.s_type = STARTED;
     m->s_header.s_payload_len = msg_size;
+    m->s_header.s_local_time = time;
     strncpy(m->s_payload, msg, msg_size);
     ret = send_multicast(me, m);
     free(m);
@@ -137,7 +170,7 @@ int send_started(struct ipc_proc *me, const char* msg, size_t msg_size) {
   }
 }
 
-int send_done(struct ipc_proc *me, const char* msg, size_t msg_size){
+int send_done(struct ipc_proc *me, const char* msg, size_t msg_size, timestamp_t time){
     if (msg_size > MAX_PAYLOAD_LEN) {
     return -1;
   } else {
@@ -146,6 +179,7 @@ int send_done(struct ipc_proc *me, const char* msg, size_t msg_size){
     m->s_header.s_magic = MESSAGE_MAGIC;
     m->s_header.s_type = DONE;
     m->s_header.s_payload_len = msg_size;
+    m->s_header.s_local_time = time;
     strncpy(m->s_payload, msg, msg_size);
     ret = send_multicast(me, m);
     free(m);
@@ -153,8 +187,10 @@ int send_done(struct ipc_proc *me, const char* msg, size_t msg_size){
   }
 }
 
-int receive_all_started(struct ipc_proc *me) {
+int receive_all_started(struct ipc_proc *me, bool is_child) {
   unsigned int neighbours_cnt = me->neighbours_cnt;
+  if (is_child)
+    neighbours_cnt--;
   unsigned int received = 0;
   while(received <  neighbours_cnt){
     int ret;
@@ -165,6 +201,9 @@ int receive_all_started(struct ipc_proc *me) {
       return ret;
     } else if(ret == 0 && m->s_header.s_type == STARTED) {
       received++;
+    } else if(ret == 0) {
+      message_queue_push(me, m);
+      continue;
     }
     free(m);
   }
