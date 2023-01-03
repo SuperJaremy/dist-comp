@@ -9,6 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "banking.h"
 #include "ipc.h"
 
 static struct ipc_neighbour *ipc_neighbour_create(local_id id, int read_pipe_fd,
@@ -25,41 +26,8 @@ static void ipc_neighbours_destroy(struct ipc_neighbour *neighbours);
 static struct ipc_neighbour *ipc_neighbour_get_by_local_id(
     struct ipc_neighbour *neighbours, local_id dst);
 
-static struct message_queue *message_queue_new(Message *message) {
-  struct message_queue *entry = malloc(sizeof(struct message_queue));
-  entry->next = NULL;
-  entry->message = message;
-  return entry;
-}
-
-static void message_queue_push(struct ipc_proc *ipc_proc, Message *message) {
-  if(ipc_proc->message_queue) {
-    struct message_queue *curr = ipc_proc->message_queue;
-    while(curr->next)
-      curr = curr->next;
-    curr->next = message_queue_new(message);
-  } else {
-    ipc_proc->message_queue = message_queue_new(message);
-  }
-}
-
-static bool message_queue_is_empty(struct ipc_proc *ipc_proc) {
-  return ipc_proc->message_queue == NULL;
-}
-
-Message *message_queue_pop(struct ipc_proc *ipc_proc) {
-  if(!message_queue_is_empty(ipc_proc)) {
-    struct message_queue *entry = ipc_proc->message_queue;
-    Message *m = entry->message;
-    ipc_proc->message_queue = entry->next;
-    free(entry);
-    return m;
-  }
-  return NULL;
-}
-
 struct ipc_proc ipc_proc_init(local_id id) {
-  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL, .neighbours_cnt = 0, .message_queue = NULL};
+  struct ipc_proc proc = {.id = id, .ipc_neighbours = NULL, .neighbours_cnt = 0};
   return proc;
 }
 
@@ -187,10 +155,9 @@ int send_done(struct ipc_proc *me, const char* msg, size_t msg_size, timestamp_t
   }
 }
 
-int receive_all_started(struct ipc_proc *me, bool is_child) {
+int receive_all_started(struct ipc_proc *me, timestamp_t *finish__time) {
+  timestamp_t time = 0;
   unsigned int neighbours_cnt = me->neighbours_cnt;
-  if (is_child)
-    neighbours_cnt--;
   unsigned int received = 0;
   while(received <  neighbours_cnt){
     int ret;
@@ -200,17 +167,19 @@ int receive_all_started(struct ipc_proc *me, bool is_child) {
       free(m);
       return ret;
     } else if(ret == 0 && m->s_header.s_type == STARTED) {
+      time = get_lamport_time();
+      while (time <= m->s_header.s_local_time)
+        time = get_lamport_time();
       received++;
-    } else if(ret == 0) {
-      message_queue_push(me, m);
-      continue;
     }
     free(m);
   }
+  *finish__time = time;
   return 0;
 }
 
-int receive_all_done(struct ipc_proc *me) {
+int receive_all_done(struct ipc_proc *me, timestamp_t *finish__time) {
+  timestamp_t time = 0;
   unsigned int neighbours_cnt = me->neighbours_cnt;
   unsigned int received = 0;
   while(received <  neighbours_cnt){
@@ -222,9 +191,15 @@ int receive_all_done(struct ipc_proc *me) {
       return ret;
     } else if(ret == 0 && m->s_header.s_type == DONE) {
       received++;
+      time = get_lamport_time();
+    }
+    if (ret == 0) {
+      while(time <= m->s_header.s_local_time) 
+        time = get_lamport_time();
     }
     free(m);
   }
+  *finish__time = time;
   return 0;
 }
 
