@@ -13,18 +13,20 @@ struct ipc_parent ipc_parent_init(struct ipc_proc *proc) {
 }
 
 void ipc_parent_do_work(struct ipc_parent *parent) {
+	timestamp_t time = 0;
 	int recieved = 0;
 	int neighbours_cnt = parent->ipc_proc->neighbours_cnt;
 	AllHistory *history = parent->history;
 	Message *m = malloc(sizeof(Message));
-	receive_all_started(parent->ipc_proc, false);
+	receive_all_started(parent->ipc_proc, &time);
+
 	bank_robbery(parent, parent->ipc_proc->neighbours_cnt);
 	m->s_header.s_magic = MESSAGE_MAGIC;
 	m->s_header.s_type = STOP;
 	m->s_header.s_payload_len = 0;
-	m->s_header.s_local_time = get_physical_time();
+	m->s_header.s_local_time = get_lamport_time();
 	send_multicast(parent->ipc_proc, m);
-	receive_all_done(parent->ipc_proc);
+	receive_all_done(parent->ipc_proc, &time);
 	while(recieved < neighbours_cnt) {
 		if (receive_any(parent->ipc_proc, m) == 0 && m->s_header.s_type == BALANCE_HISTORY) {
 			BalanceHistory *h = (void *)(m->s_payload);
