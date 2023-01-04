@@ -5,11 +5,9 @@
 #include "ipc_proc.h"
 #include <sys/types.h>
 
-struct cs_queue;
-
 struct ipc_child {
 	struct ipc_proc *ipc_proc;
-	struct cs_queue *cs_queue;
+	bool *deffered_replies;
 };
 
 struct ipc_child ipc_child_init(struct ipc_proc *proc);
