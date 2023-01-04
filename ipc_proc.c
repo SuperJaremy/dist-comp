@@ -113,7 +113,7 @@ int receive_any(void *self, Message *msg) {
   struct ipc_neighbour *neighbour = ipc_proc->ipc_neighbours;
   while (neighbour) {
     int res = receive(self, neighbour->id, msg);
-    if(res == 0) return 0;
+    if(res == 0) return neighbour->id;
     else if(res == NO_READ)
       neighbour = neighbour->next;
     else return -1;
@@ -166,7 +166,7 @@ int receive_all_started(struct ipc_proc *me, timestamp_t *finish__time) {
     if(ret == -1) {
       free(m);
       return ret;
-    } else if(ret == 0 && m->s_header.s_type == STARTED) {
+    } else if(ret > 0 && m->s_header.s_type == STARTED) {
       time = get_lamport_time();
       while (time <= m->s_header.s_local_time)
         time = get_lamport_time();
@@ -189,7 +189,7 @@ int receive_all_done(struct ipc_proc *me, timestamp_t *finish__time) {
     if(ret == -1) {
       free(m);
       return ret;
-    } else if(ret == 0 && m->s_header.s_type == DONE) {
+    } else if(ret > 0 && m->s_header.s_type == DONE) {
       received++;
       time = get_lamport_time();
     }

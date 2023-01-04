@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#include "ipc_parent.h"
 #include <getopt.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -13,18 +12,17 @@
 
 #include "banking.h"
 #include "ipc.h"
-#include "ipc_banking.h"
-#include "ipc_proc.h"
 #include "ipc_parent.h"
+#include "ipc_proc.h"
 #include "ipc_child.h"
 #include "pa2345.h"
 
 #define PIPES_LOG "pipes.log"
 #define EVENTS_LOG "events.log"
 
-static int get_process_number(int argc, char *argv[]);
+static int get_process_number(int argc, char *argv[], bool *mutexl);
 
-static void do_child_proc(pid_t parent, struct ipc_proc *proc, balance_t init_balance);
+static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl);
 
 static void close_all_extra_pipes(local_id id, int process_cnt, int read_pipes[], int write_pipes[]);
 
@@ -39,15 +37,12 @@ int main(int argc, char *argv[]) {
   int *read_pipes, *write_pipes;
   struct ipc_proc parent_proc;
   struct ipc_proc *procs;
-  balance_t *init_balances;
-  N = get_process_number(argc, argv);
+  bool mutexl = false;
+  struct ipc_parent ipc_parent;
+  N = get_process_number(argc, argv, &mutexl);
   if (N < 1) {
     fprintf(stderr, "Usage: %s -p p_num p_balance...\n", argv[0]);
     exit(EXIT_FAILURE);
-  }
-  init_balances = malloc(sizeof(int) * N);
-  for(i = 0; i < N; i++) {
-    init_balances[i] = atoi(argv[i + 3]);
   }
   events_log = fopen(EVENTS_LOG, "w");
   fclose(events_log);
@@ -98,45 +93,50 @@ int main(int argc, char *argv[]) {
       goto end;
     } else if (pid == 0) {
       close_all_extra_pipes(i + 1, N + 1, read_pipes, write_pipes);
-      do_child_proc(parent, &procs[i], init_balances[i]);
+      do_child_proc(parent, &procs[i], mutexl);
     }
     working++;
   }
   close_all_extra_pipes(0, N + 1, read_pipes, write_pipes);
-  struct ipc_parent ipc_parent = ipc_parent_init(&parent_proc);
+  ipc_parent = ipc_parent_init(&parent_proc);
   ipc_parent_do_work(&ipc_parent);
 end:
   for (i = 0; i < working; i++) {
     wait(&wstatus);
   }
-  print_history(ipc_parent_get_history(&ipc_parent));
   ipc_parent_destroy(&ipc_parent);
   free(read_pipes);
   free(write_pipes);
-  free(init_balances);
   exit(exit_status);
 }
 
-static int get_process_number(int argc, char *argv[]) {
+static int get_process_number(int argc, char *argv[], bool *mutexl) {
   int opchar;
   int N = -1;
-  while (-1 != (opchar = getopt(argc, argv, "p:"))) {
+  struct option long_option[] = {
+    {"mutexl", no_argument, 0, 'm'},
+    {0       , 0          , 0, 0}
+  };
+  while (-1 != (opchar = getopt_long(argc, argv, "p:", long_option, NULL))) {
     switch (opchar) {
       case 'p': {
         N = atoi(optarg);
         break;
       }
-      default:
+    case 'm': 
+      *mutexl = true;
+      break;
+    default:
         return -1;
     }
   }
   return N;
 }
 
-static void do_child_proc(pid_t parent, struct ipc_proc *proc, balance_t init_balance) {
+static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl) {
   int exit_status;
-  struct ipc_child child = ipc_child_init(proc, init_balance);
-  exit_status = ipc_child_listen(&child, parent);
+  struct ipc_child child = ipc_child_init(proc);
+  exit_status = ipc_child_listen(&child, parent, mutexl);
   ipc_child_destroy(&child);
   exit(exit_status);
 }
