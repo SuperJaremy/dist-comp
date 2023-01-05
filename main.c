@@ -22,7 +22,7 @@
 
 static int get_process_number(int argc, char *argv[], bool *mutexl);
 
-static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl);
+static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl, FILE *log);
 
 static void close_all_extra_pipes(local_id id, int process_cnt, int read_pipes[], int write_pipes[]);
 
@@ -84,6 +84,7 @@ int main(int argc, char *argv[]) {
       procs[i - 1] = proc;
   }
   fclose(pipes_log);
+  events_log = fopen(EVENTS_LOG, "a");
   for (i = 0; i < N; i++) {
     pid_t pid, parent;
     parent = getpid();
@@ -93,13 +94,13 @@ int main(int argc, char *argv[]) {
       goto end;
     } else if (pid == 0) {
       close_all_extra_pipes(i + 1, N + 1, read_pipes, write_pipes);
-      do_child_proc(parent, &procs[i], mutexl);
+      do_child_proc(parent, &procs[i], mutexl, events_log);
     }
     working++;
   }
   close_all_extra_pipes(0, N + 1, read_pipes, write_pipes);
   ipc_parent = ipc_parent_init(&parent_proc);
-  ipc_parent_do_work(&ipc_parent);
+  ipc_parent_do_work(&ipc_parent, events_log);
 end:
   for (i = 0; i < working; i++) {
     wait(&wstatus);
@@ -107,6 +108,7 @@ end:
   ipc_parent_destroy(&ipc_parent);
   free(read_pipes);
   free(write_pipes);
+  fclose(events_log);
   exit(exit_status);
 }
 
@@ -133,10 +135,10 @@ static int get_process_number(int argc, char *argv[], bool *mutexl) {
   return N;
 }
 
-static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl) {
+static void do_child_proc(pid_t parent, struct ipc_proc *proc, bool mutexl, FILE *log) {
   int exit_status;
   struct ipc_child child = ipc_child_init(proc);
-  exit_status = ipc_child_listen(&child, parent, mutexl);
+  exit_status = ipc_child_listen(&child, parent, mutexl, log);
   ipc_child_destroy(&child);
   exit(exit_status);
 }

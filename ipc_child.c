@@ -33,7 +33,7 @@ struct ipc_child ipc_child_init(struct ipc_proc *proc) {
   return child;
 }
 
-int ipc_child_listen(struct ipc_child *child, pid_t parent, bool mutexl) {
+int ipc_child_listen(struct ipc_child *child, pid_t parent, bool mutexl, FILE *log) {
   char started_msg[128];
   int exit_status = EXIT_SUCCESS;
   local_id i;
@@ -46,7 +46,6 @@ int ipc_child_listen(struct ipc_child *child, pid_t parent, bool mutexl) {
 
   sprintf(started_msg, log_started_fmt, time, child->ipc_proc->id, getpid(),
           parent, 0);
-  FILE *log = fopen(events_log, "a");
 
   fprintf(log, "%s\n", started_msg);
   fflush(log);

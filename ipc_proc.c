@@ -193,7 +193,7 @@ int receive_all_done(struct ipc_proc *me, timestamp_t *finish__time) {
       received++;
       time = get_lamport_time();
     }
-    if (ret == 0) {
+    if (ret > 0) {
       while(time <= m->s_header.s_local_time) 
         time = get_lamport_time();
     }
