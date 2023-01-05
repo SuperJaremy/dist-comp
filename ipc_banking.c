@@ -1,7 +1,6 @@
 #include "ipc_banking.h"
 #include "banking.h"
 #include "ipc.h"
-#include "ipc_parent.h"
 #include "ipc_proc.h"
 
 #include <stdlib.h>
@@ -38,25 +37,7 @@ void balance_history_add_state(BalanceHistory *history, timestamp_t start, times
 }
 
 void transfer(void * parent_data, local_id src, local_id dst, balance_t amount) {
-	struct ipc_parent *parent = parent_data;
-	timestamp_t time = get_lamport_time();
-	TransferOrder order = {
-		.s_dst = dst,
-		.s_src = src,
-		.s_amount = amount
-	};
-	Message *m = malloc(sizeof(Message));
-	m->s_header.s_magic = MESSAGE_MAGIC;
-	m->s_header.s_type = TRANSFER;
-	m->s_header.s_local_time = time;
-	m->s_header.s_payload_len = sizeof(order);
-	memcpy(m->s_payload, &order, sizeof(order));
-	send(parent->ipc_proc, src, m);
-	time = get_lamport_time();
-	while(receive(parent->ipc_proc, dst, m) == NO_READ);
-	while (time <= m->s_header.s_local_time) {
-		time = get_lamport_time();
-	}
+	
 }
 
 timestamp_t get_lamport_time() {

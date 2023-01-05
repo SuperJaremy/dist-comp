@@ -7,7 +7,7 @@
 
 #include "ipc.h"
 
-#define NO_READ 2
+#define NO_READ -2
 
 struct ipc_neighbour;
 

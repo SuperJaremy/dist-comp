@@ -3,17 +3,19 @@
 
 #include "banking.h"
 #include "ipc_proc.h"
+#include <stdio.h>
 #include <sys/types.h>
+
+struct cs_queue;
 
 struct ipc_child {
 	struct ipc_proc *ipc_proc;
-	balance_t balance;
-	BalanceHistory *b_history;
+	struct cs_queue *cs_queue;
 };
 
-struct ipc_child ipc_child_init(struct ipc_proc *proc, balance_t init_balance);
+struct ipc_child ipc_child_init(struct ipc_proc *proc);
 
-int ipc_child_listen(struct ipc_child *child, pid_t parent);
+int ipc_child_listen(struct ipc_child *child, pid_t parent, bool mutexl, FILE *log);
 
 void ipc_child_destroy(struct ipc_child *child);
 
