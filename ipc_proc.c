@@ -159,9 +159,9 @@ int receive_all_started(struct ipc_proc *me, timestamp_t *finish__time) {
   timestamp_t time = 0;
   unsigned int neighbours_cnt = me->neighbours_cnt;
   unsigned int received = 0;
+  Message *m = malloc(sizeof(Message));
   while(received <  neighbours_cnt){
     int ret;
-    Message *m = malloc(sizeof(Message));
     ret = receive_any(me, m);
     if(ret == -1) {
       free(m);
@@ -172,8 +172,8 @@ int receive_all_started(struct ipc_proc *me, timestamp_t *finish__time) {
         time = get_lamport_time();
       received++;
     }
-    free(m);
   }
+  free(m);
   *finish__time = time;
   return 0;
 }
@@ -181,24 +181,24 @@ int receive_all_started(struct ipc_proc *me, timestamp_t *finish__time) {
 int receive_all_done(struct ipc_proc *me, timestamp_t *finish__time) {
   timestamp_t time = 0;
   unsigned int neighbours_cnt = me->neighbours_cnt;
-  unsigned int received = 0;
-  while(received <  neighbours_cnt){
+  local_id i = 1;
+  Message *m = malloc(sizeof(Message));
+  while (i < neighbours_cnt + 1) {
     int ret;
-    Message *m = malloc(sizeof(Message));
-    ret = receive_any(me, m);
+    while ((ret = receive(me, i, m) == NO_READ));
     if(ret == -1) {
       free(m);
       return ret;
-    } else if(ret > 0 && m->s_header.s_type == DONE) {
-      received++;
+    } else if(ret == 0 && m->s_header.s_type == DONE) {
+      i++;
       time = get_lamport_time();
     }
-    if (ret > 0) {
+    if (ret == 0) {
       while(time <= m->s_header.s_local_time) 
         time = get_lamport_time();
     }
-    free(m);
   }
+  free(m);
   *finish__time = time;
   return 0;
 }
