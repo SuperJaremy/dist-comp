@@ -14,7 +14,7 @@ All events are printed to _events.log_ file.
 clang -std=c99 -Wall -pedantic *.c -L. -lruntime
 ### Run
 ```
-export LD_LIBRARY_PATH:/path/to/pa2/dir";  
+export LD_LIBRARY_PATH="LD_LIBRARY_PATH:/path/to/pa2/dir";  
 ### empty line
 LD_PRELOAD=/full/path/to/llibruntime.so ./pa2 -p <proc_num> <proc_balance_1 ... proc_balalance_n>
 ```
